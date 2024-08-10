@@ -124,49 +124,60 @@ public class Engine {
         System.out.println();
         return bestBoard;
     }
-
+    //Wrapper method for negaMax
     private static Board negaMax(Board board, int depth) {
-        Repetition.refreshTables(); //reset tree table to actual positions
+        //Refresh repetition table
+        Repetition.refreshTables();
 
+        //initialize alpha and beta values
         double alpha = Double.NEGATIVE_INFINITY;
         double beta = Double.POSITIVE_INFINITY;
+
+        //Flag indicating the type of move stored in the transposition table
         int hashFlag = TTable.flagAlpha; //if pv move not found flag this node as alpha
+        //Initialize principial variation length
         pvLength[0] = 0;
 
+        //Get all legal moves for the current board position
         MoveList moveList = MoveGeneration.getMoves(board);
+        //Reorder moves based on the principal variation
         moveList.reorder(board, previousPV[0][0]);
-
+        //variables to store best board and evaluation
         Board bestBoard = null;
         Board nextBoard;
         double eval;
         boolean foundPV = false;
         boolean repetition, alphaIsARepetition = false;
-
+        //Iterate through all legal moves
         for (int i = 0; i < moveList.count; i++) {
+            //Make a copy of the board and apply the current move
             nextBoard = new Board(board);
             nextBoard.makeMove(moveList.moves[i]);
-
+            //Check for repetition
             repetition = Repetition.addToHistory(nextBoard.zobristKey, Repetition.treeFlag);
+            //Evaluate position after the move
             if (repetition) {
                 eval = 0;
             } else {
+                //If PV is found, perform full search on the move
                 if (foundPV) {
                     eval = -negaMax(nextBoard, depth - 1, -alpha - 1, -alpha);
                     if ((eval > alpha) && (eval < beta)) { //if move searched after pv found is better than pv then have to full search move
                         eval = -negaMax(nextBoard, depth - 1, -beta, -alpha);
                     }
                 } else {
+                    //Otherwise, perform normal search
                     eval = -negaMax(nextBoard, depth - 1, -beta, -alpha);
                 }
             }
             Repetition.removeFromHistory(nextBoard.zobristKey);
 
             //System.out.printf("Move: %s, Eval: %.2f\n",MoveList.toStringMove(moveList.moves[i]), eval);
-
+            //Check if time limit is reached
             if (System.currentTimeMillis() - startTime > thinkTime) { //if timelimit reached
                 return null;
             }
-            //beta is currently infinity so nothing is greater than beta
+            // Update alpha and store PV
             if (eval > alpha) {
                 alpha = eval;
                 alphaIsARepetition = repetition;
@@ -174,6 +185,7 @@ public class Engine {
                 foundPV = true;
                 hashFlag = TTable.flagExact;
 
+                //Store the PV
                 pvTable[0][0] = moveList.moves[i];
                 for (int j = 1; j < pvLength[1]; j++) {
                     pvTable[0][j] = pvTable[1][j];
@@ -181,41 +193,45 @@ public class Engine {
                 pvLength[0] = pvLength[1];
             }
         }
+        //Store the result in the transposition table if it's not a repetition
         if (!alphaIsARepetition) {
             TTable.writeValue(board.zobristKey, depth, alpha, hashFlag);
         }
         return bestBoard;
     }
-
+    //main search functiono
     private static double negaMax(Board board, int depth, double alpha, double beta) {
+        //calculate pv index
         int pvIndex = totalDepth - depth;
         pvLength[pvIndex] = pvIndex;
-
+        //Initialize hash flag
         int hashFlag = TTable.flagAlpha;
+        //retrieve the cached evaluation if available
         double eval = TTable.getValue(board.zobristKey, depth, alpha, beta);
         if (eval != TTable.noValue) { //if this position is already evaluated with this depth
             nodes++;
             return eval;
         }
-
+        //Base case: if maximum depth is reached, evaluate the position
         if (depth == 0) {
             nodes++;
             int mate = MoveGeneration.mateCheck(board);
             if (mate == 0) {
+                //Apply quiescence search
                 eval = quiescence(board, alpha, beta);
-                //TTable.writeValue(board.zobristKey, depth, eval, TTable.flagExact); //this is breaking something
                 return eval;
             } else if (mate == 1) {
-                //TTable.writeValue(board.zobristKey, depth, -999999999 - depth, TTable.flagExact);
+                //checkmate
                 return -999999999 - depth;
             } else {
-                //TTable.writeValue(board.zobristKey, depth, 0, TTable.flagExact);
+                //stalemate
                 return 0;
             }
         }
-
+        //Generate legal moves for the current position
         MoveList moveList = MoveGeneration.getMoves(board);
         if (moveList.count == 0) {
+            // Check for checkmate or stalemate
             nodes++;
             if ((board.fKing & board.eAttackMask) != 0) {
                 return -999999999 - depth;
@@ -223,30 +239,33 @@ public class Engine {
                 return 0;
             }
         }
-
+        //Create a copy of the board
         Board nextBoard;
         boolean foundPV = false;
         boolean repetition, alphaIsARepetition = false;
-
+        //Reorder moves based on the principal variation and Iterate through all legal moves
         moveList.reorder(board, previousPV[pvIndex][pvIndex]);
         for (int i = 0; i < moveList.count; i++) {
             if (System.currentTimeMillis() - startTime > thinkTime) { //if time limit reached
                 return timeOut;
             }
-
+            //Make a copy of the board and apply the move
             nextBoard = new Board(board);
             nextBoard.makeMove(moveList.moves[i]);
-
+            //Check for repetition
             repetition = Repetition.addToHistory(nextBoard.zobristKey, Repetition.treeFlag);
+            //Evaluate the position after the move
             if (repetition) {
                 eval = 0;
             } else {
                 if (foundPV) {
+                    //If PV is found, perform full search on the move
                     eval = -negaMax(nextBoard, depth - 1, -alpha - 1, -alpha);
                     if ((eval > alpha) && (eval < beta)) { //if move searched after pv found is better than pv then have to full search move
                         eval = -negaMax(nextBoard, depth - 1, -beta, -alpha);
                     }
                 } else {
+                    //Otherwise, perform normal search
                     eval = -negaMax(nextBoard, depth - 1, -beta, -alpha);
                 }
             }
@@ -255,7 +274,7 @@ public class Engine {
             if (System.currentTimeMillis() - startTime > thinkTime) { //if time limit reached
                 return timeOut;
             }
-
+            //Update alpha and store PV
             if (eval >= beta) {
                 if (!repetition) {
                     TTable.writeValue(board.zobristKey, depth, beta, TTable.flagBeta);
@@ -267,7 +286,6 @@ public class Engine {
                 hashFlag = TTable.flagExact;
                 alpha = eval;
                 foundPV = true;
-
                 alphaIsARepetition = repetition; //if eval is 0 because of repetition and alpha < 0, alpha cannot be trusted
                 pvTable[pvIndex][pvIndex] = moveList.moves[i];
                 for (int j = pvIndex+1; j < pvLength[pvIndex+1]; j++) {
@@ -276,6 +294,7 @@ public class Engine {
                 pvLength[pvIndex] = pvLength[pvIndex+1];
             }
         }
+        //Store the result in the transposition table if it's not a repetition
         if (!alphaIsARepetition) {
             TTable.writeValue(board.zobristKey, depth, alpha, hashFlag);
         }
